@@ -2,6 +2,15 @@ import streamlit as st
 from PIL import Image
 import numpy as np
 from tensorflow.keras.models import load_model
+import json
+import firebase_admin
+from firebase_admin import credentials, firestore
+import cloudinary
+import cloudinary.uploader
+import io
+import uuid
+from datetime import datetime
+import hashlib
 
 class TerrainDetector:
     def __init__(self):
@@ -14,36 +23,47 @@ class TerrainDetector:
         
         trained_model = self.load_nn_model()
 
+        if 'uploaded_data' not in st.session_state:
+            st.session_state.uploaded_data = False
+        if 'real_terrain' not in st.session_state:
+            st.session_state.real_terrain = None
+        
+        self.db = self.connect_firebase()
+        self.bucket = self.connect_cloudinary()
+
         self.run(trained_model)
 
-    def show_card(self, lbl, value):
-        card_html = f"""
-        <div style="
-            background-color: var(--background-secondary);
-            padding: 15px;
-            width: 100%;
-            text-align: center;
-            margin-top: 10px;
-            margin-bottom: 10px;
-        ">
-            <div style="
-                font-size: 18px;
-                font-weight: bold;
-                color: #1668CC;
-                margin-bottom: 8px;
-            ">
-                {lbl}
-            </div>
-            <div style="
-                font-size: 24px;
-                font-weight: bold;
-                color: var(--text-color);
-            ">
-                {value}
-            </div>
-        </div>
-        """
-        st.markdown(card_html, unsafe_allow_html=True)
+    def connect_firebase(self):
+        cred_dict = json.loads(st.secrets['firebase_service_account'])
+        cred = credentials.Certificate(cred_dict)
+
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred, {
+                'storageBucket': cred_dict['project_id'] + '.appspot.com'
+            })
+
+        db = firestore.client()
+        
+        return db
+
+    def connect_cloudinary(self):
+        cloudinary.config(
+            cloud_name=st.secrets['cloudinary']['cloud_name'],
+            api_key=st.secrets['cloudinary']['api_key'],
+            api_secret=st.secrets['cloudinary']['api_secret']
+        )
+    
+    def upload_to_cloudinary(self, image: Image.Image, filename: str):
+        buffered = io.BytesIO()
+        image.save(buffered, format='JPEG')
+        buffered.seek(0)
+
+        response = cloudinary.uploader.upload(
+            buffered,
+            public_id=filename,
+            folder='terrain_detector'
+            )
+        return response['secure_url']
 
     # Cargar el modelo
     @staticmethod
@@ -73,6 +93,14 @@ class TerrainDetector:
             uploaded_file = st.file_uploader('Sube una imagen de terreno', type=['jpg', 'png', 'jpeg'])
 
         if uploaded_file:
+            current_image_hash = self.get_file_hash(uploaded_file)
+
+            # Si la imagen cambia, reseteamos el estado
+            if st.session_state.get('last_image_hash') != current_image_hash:
+                st.session_state.last_image_hash = current_image_hash
+                st.session_state.uploaded_data = False
+                st.session_state.real_terrain = None
+            
             # Mostrar imagen redimensionada
             image = Image.open(uploaded_file)
 
@@ -105,12 +133,67 @@ class TerrainDetector:
                 with cols_2[1]:
                     self.show_card('Velocidad recomendada', set_speed(detected_terrain))
                 
-                cols_2 = st.columns([5, 6], vertical_alignment='center')
+                cols_2 = st.columns([5, 6], vertical_alignment='top')
                 with cols_2[0]:
-                    real_terrain = st.selectbox('**Selecciona el tipo de terreno real**', options=list(terr_dict.values()), index=None)
+                    if not st.session_state.uploaded_data:
+                        real_terrain = st.selectbox('**Selecciona el tipo de terreno real**', options=list(terr_dict.values()), index=None)
 
+                        st.session_state.real_terrain = real_terrain
+
+                        if real_terrain:
+                            # Subir imagen y datos automáticamente
+                            image_id = str(uuid.uuid4())
+                            image_url = self.upload_to_cloudinary(image, f'{image_id}')
+
+                            doc_data = {
+                                'timestamp': datetime.now(),
+                                'detected_terrain': detected_terrain,
+                                'real_terrain': real_terrain,
+                                'imagen_url': image_url
+                            }
+                            self.db.collection('terrain_detector').add(doc_data)
+
+                            st.session_state.uploaded_data = True
+                            st.rerun()
+                    else:
+                        self.show_card('Terreno real', st.session_state.real_terrain)
                 with cols_2[1]:
-                    self.show_card('Velocidad esperada', set_speed(real_terrain))
+                    self.show_card('Velocidad esperada', set_speed(st.session_state.real_terrain))
+                
+                if st.session_state.real_terrain:
+                    st.success('🥳🥳 Gracias por tu colaboración.')
+    
+    def get_file_hash(self, file):
+        return hashlib.md5(file.getvalue()).hexdigest()
+    
+    def show_card(self, lbl, value):
+        card_html = f"""
+        <div style="
+            background-color: var(--background-secondary);
+            padding: 15px;
+            width: 100%;
+            text-align: center;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        ">
+            <div style="
+                font-size: 18px;
+                font-weight: bold;
+                color: #1668CC;
+                margin-bottom: 8px;
+            ">
+                {lbl}
+            </div>
+            <div style="
+                font-size: 24px;
+                font-weight: bold;
+                color: var(--text-color);
+            ">
+                {value}
+            </div>
+        </div>
+        """
+        st.markdown(card_html, unsafe_allow_html=True)
 
 if __name__ == '__main__':
     TerrainDetector()
