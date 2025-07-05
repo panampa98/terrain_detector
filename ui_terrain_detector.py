@@ -12,6 +12,9 @@ import uuid
 from datetime import datetime
 import hashlib
 import time
+from datetime import datetime
+import random
+import string
 
 import google.generativeai as genai
 
@@ -110,6 +113,12 @@ class TerrainDetector:
                 'Tierra Seca': '50 KPH',
                 'Tierra Lodosa': '20 KPH'
             }.get(terrain, 'N/A')
+        
+        def generate_custom_id(real_terrain: str):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            terrain = real_terrain.replace(" ", "") if real_terrain else "Desconocido"
+            rand = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+            return f"{timestamp}_{terrain}_{rand}"
 
 
         cols = st.columns([3, 5])
@@ -243,7 +252,7 @@ class TerrainDetector:
                             'real_terrain': real_terrain,
                             'imagen_url': image_url
                         }
-                        self.db.collection('terrain_detector').add(doc_data)
+                        self.db.collection('terrain_detector').add(doc_data, document_id=generate_custom_id(real_terrain))
 
                         st.session_state.uploaded_data = True
                         st.rerun()
