@@ -46,6 +46,8 @@ class TerrainDetector:
             st.session_state.uploaded_data = False
         if 'real_terrain' not in st.session_state:
             st.session_state.real_terrain = None
+        if 'genai_prediction' not in st.session_state:
+            st.session_state.genai_prediction = {}
         
         self.db = self.connect_firebase()
         self.bucket = self.connect_cloudinary()
