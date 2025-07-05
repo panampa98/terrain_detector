@@ -125,9 +125,11 @@ class TerrainDetector:
 
         with cols[0]:
             st.title('Clasificador de Terreno')
+            st.subheader('Deep Learning vs GenAI')
         
         with cols[1]:
-            uploaded_file = st.file_uploader('Sube una imagen de terreno', type=['jpg', 'png', 'jpeg'])
+            uploaded_file = st.file_uploader('Sube una imagen de terreno',
+                                             type=['jpg', 'png', 'jpeg'])
 
         if uploaded_file:
             current_image_hash = self.get_file_hash(uploaded_file)
@@ -252,7 +254,10 @@ class TerrainDetector:
                             'real_terrain': real_terrain,
                             'imagen_url': image_url
                         }
-                        self.db.collection('terrain_detector').add(doc_data, document_id=generate_custom_id(real_terrain))
+                        self.db.collection('terrain_detector').add(
+                            doc_data,
+                            document_id=generate_custom_id(real_terrain)
+                        )
 
                         st.session_state.uploaded_data = True
                         st.rerun()
